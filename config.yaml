@@ -1,0 +1,152 @@
+  # ============================================================
+# AUTO-SHORTS-ENGINE CONFIGURATION
+# ============================================================
+
+project:
+  name: "auto-shorts-engine"
+  version: "1.0.0"
+
+# --- Scheduling ---
+scheduler:
+  videos_per_day: 3
+  post_interval_hours: 5        # gap between each video post (5h = 9am / 2pm / 7pm)
+  daily_start_hour: 9           # IST hour to start the daily batch (24h clock)
+  timezone: "Asia/Kolkata"
+  retry_on_failure: true
+  max_retries: 3
+  language_sequence:            # all English (Hindi commented out)
+    # - "hi"
+    - "en"
+    # - "hi"
+
+# --- Trend Discovery ---
+trends:
+  sources:
+    google_trends: true
+    reddit: true
+    newsapi: true
+  niches:
+    - "technology"
+    - "science"
+    - "psychology"
+    - "money"
+    - "history"
+    - "shocking facts"
+  blacklist_keywords:
+    - "politics"
+    - "religion"
+    - "war"
+    - "nsfw"
+  min_trend_score: 60
+  lookback_hours: 24
+
+# --- Script ---
+script:
+  style: "hooks_and_facts"
+  tone: "energetic_casual"
+  target_duration_seconds: 45
+  max_words: 130
+  min_words: 80
+  language: "en"
+  hook_style: "question"
+  cta_enabled: true
+
+# --- Voice ---
+voice:
+  provider: "elevenlabs"
+  elevenlabs:
+    voice_id: "pNInz6obpgDQGcFmaJgB"
+    model_id: "eleven_turbo_v2_5"
+    stability: 0.5
+    similarity_boost: 0.8
+    speed: 1.05
+  edge_tts:
+    voice: "en-US-GuyNeural"
+    rate: "+5%"
+    pitch: "+0Hz"
+
+# --- Visuals ---
+visuals:
+  provider: "pexels"
+  images_per_video: 4
+  resolution:
+    width: 1080
+    height: 1920
+  motion:
+    ken_burns_enabled: true
+    zoom_range: [1.0, 1.15]
+    pan_speed: 0.3
+  transitions:
+    type: "crossfade"
+    duration: 0.5
+
+# --- Subtitles ---
+subtitles:
+  enabled: true
+  style: "word_highlight"
+  font: "Montserrat-Bold"
+  font_size: 60
+  max_words_per_line: 4
+  whisper_model: "base"       # tiny | base | small | medium | large
+  colors:
+    active_word: "#FFFF00"
+    inactive_word: "#FFFFFF"
+    stroke_color: "#000000"
+    stroke_width: 3
+  position: "center"
+  animation: "scale_pop"      # scale_pop | fade
+
+# --- YouTube Upload ---
+youtube:
+  channel_category: "22"
+  default_tags:
+    - "shorts"
+    - "facts"
+    - "trending"
+    - "didyouknow"
+  privacy: "public"
+  made_for_kids: false
+  shorts_hashtags:
+    - "#Shorts"
+    - "#Facts"
+    - "#Trending"
+
+# --- Excel Tracker ---
+tracker:
+  excel_path: "data/tracking_sheet.xlsx"
+  sheet_name: "Shorts Tracker"
+  columns:
+    - "ID"
+    - "Date"
+    - "Topic"
+    - "Script"
+    - "Trend Source"
+    - "Trend Score"
+    - "Video File"
+    - "YouTube URL"
+    - "Status"
+    - "Views (24h)"
+    - "Notes"
+
+# --- Video Output Mode ---
+video:
+  mode: "fullscreen"      # DEFAULT — do not change. Use --splitscreen flag to test.
+                          # Options: "fullscreen" or "splitscreen"
+
+# --- Split-Screen (Brain Rot) Settings ---
+# Only used when video.mode == "splitscreen" or --splitscreen flag is passed.
+splitscreen:
+  top_height: 1152        # 60% of 1920
+  bottom_height: 768      # 40% of 1920
+  subtitle_y_position: 1100
+  brain_rot_categories:
+    - query: "parkour freerunning"
+      weight: 30
+    - query: "satisfying soap cutting"
+      weight: 25
+    - query: "cooking asmr"
+      weight: 25
+    - query: "kinetic sand satisfying"
+      weight: 20
+  clip_cache_dir: "assets/brain_rot_clips"
+  max_cached_clips: 30

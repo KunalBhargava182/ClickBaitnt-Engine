@@ -1,0 +1,43 @@
+# ── Secrets ──────────────────────────────────────────────
+.env
+data/client_secrets.json
+data/youtube_token.json
+
+# ── Personal Data ────────────────────────────────────────
+data/tracking_sheet.xlsx
+data/*.xlsx
+data/*.csv
+
+# ── Large Binary Assets ──────────────────────────────────
+assets/brain_rot_clips/
+assets/music/
+
+# ── Generated Output ─────────────────────────────────────
+output/
+outputs/
+temp/
+tmp/
+
+# ── Logs ─────────────────────────────────────────────────
+logs/
+*.log
+
+# ── Python Cache ─────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# ── Claude IDE ───────────────────────────────────────────
+.claude/
+
+# ── Documentation ────────────────────────────────────────
+*.md
+
+# ── OS Files ─────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini

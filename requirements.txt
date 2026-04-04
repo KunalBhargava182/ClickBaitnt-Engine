@@ -1,0 +1,42 @@
+# Core
+python-dotenv==1.0.0
+pyyaml==6.0.1
+apscheduler==3.10.4
+
+# Trend Discovery
+pytrends==4.9.2
+praw==7.7.1
+requests==2.31.0
+newsapi-python==0.2.7
+
+# AI / LLM — Google Gemini (free tier: 15 RPM, 1M tokens/day)
+google-genai>=1.0.0
+
+# Voice / TTS
+elevenlabs>=1.5.0
+edge-tts==6.1.12
+pydub==0.25.1
+
+# Image
+# stability-sdk is the old gRPC SDK; v2beta REST API is used directly via requests
+Pillow==10.4.0
+
+# Video
+moviepy>=2.0.0          # installed 2.1.2 — new API (from moviepy import VideoClip)
+numpy>=1.26.0           # required by moviepy 2.x
+ffmpeg-python==0.2.0
+
+# Subtitles — local Whisper (runs on-device, no API cost)
+openai-whisper==20231117
+
+# YouTube Upload
+google-auth==2.32.0
+google-auth-oauthlib==1.2.1
+google-api-python-client==2.140.0
+
+# Tracking
+openpyxl==3.1.5
+
+# Utilities
+tenacity==8.5.0
+structlog==24.4.0
