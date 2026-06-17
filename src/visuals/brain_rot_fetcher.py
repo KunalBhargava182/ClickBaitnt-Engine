@@ -2,15 +2,16 @@
 BrainRotFetcher — supplies the bottom-panel clip for split-screen mode.
 
 Workflow:
-  1. Weighted-random category selection from config.splitscreen.brain_rot_categories.
-  2. Check local cache (assets/brain_rot_clips/). If 3+ clips for the chosen
-     category are cached, pick one at random — no API call.
-  3. Otherwise fetch from the Pexels Video API, download the best file, and
-     cache it locally.
-  4. Trim or loop the raw clip to exactly ``duration`` seconds.
-  5. Resize to 1080 × 768 (portrait crop if needed).
-  6. Strip audio from the returned clip.
-  7. On ANY failure: log the error and return None.
+  1. Scan assets/brain_rot_clips/ for ALL .mp4 files (manual + auto-downloaded).
+  2. Manual clips (any file NOT matching *_[timestamp].mp4) are preferred first.
+     Auto-downloaded clips are used as fallback when manual pool is exhausted.
+  3. Only fetch a new clip from Pexels if the total pool has fewer than 3 clips.
+  4. Anti-repeat: skip clips used in the last 5 selections (usage_log.json).
+  5. Validate every candidate: skip clips under 8 s, delete corrupted ones.
+  6. Trim or loop the raw clip to exactly ``duration`` seconds.
+  7. Resize to 1080 × 768 (portrait crop if needed).
+  8. Strip audio from the returned clip.
+  9. On ANY failure: log the error and return None.
      The caller (VideoComposer) treats None as a signal to fall back to
      the standard fullscreen pipeline.
 
@@ -20,6 +21,7 @@ Environment:
 
 from __future__ import annotations
 
+import json
 import os
 import random
 import re
@@ -42,8 +44,17 @@ _OUT_H = 768
 # Minimum acceptable video height from Pexels (skip tiny files)
 _MIN_VIDEO_HEIGHT = 720
 
-# How many cached clips per category must exist before we skip the API call
+# Minimum clip pool size before we call the Pexels API
 _CACHE_HIT_THRESHOLD = 3
+
+# Minimum clip duration in seconds — clips shorter than this are skipped
+_MIN_CLIP_DURATION = 8.0
+
+# How many recent selections to remember for anti-repeat
+_ANTI_REPEAT_WINDOW = 5
+
+# Pattern that matches auto-downloaded filenames: <slug>_<unix-timestamp>.mp4
+_AUTO_PATTERN = re.compile(r'^.+_\d{9,10}\.mp4$')
 
 
 def _slug(text: str) -> str:
@@ -99,26 +110,45 @@ class BrainRotFetcher:
 
     def _get_clip(self, duration: float):
         """Core logic — all errors propagate to get_clip() which catches them."""
-        if not self._categories:
-            log.error("brain_rot_fetcher.no_categories_configured")
+        self._cache_dir.mkdir(parents=True, exist_ok=True)
+
+        # 1. Scan entire folder for all .mp4 files
+        manual, downloaded = self._scan_pool()
+        total = len(manual) + len(downloaded)
+
+        # 2. Download from Pexels only if pool is too small
+        if total < _CACHE_HIT_THRESHOLD:
+            if self._categories:
+                category = self._pick_category()
+                log.info(
+                    "brain_rot_fetcher.fetching_new_clip",
+                    query=category["query"],
+                    pool_size=total,
+                )
+                new_path = self._fetch_from_pexels(category)
+                if new_path:
+                    downloaded.append(new_path)
+                    self._prune_cache()
+            if not manual and not downloaded:
+                log.error("brain_rot_fetcher.empty_pool")
+                return None
+
+        # Print pool summary
+        print(
+            f"[BrainRot] Pool: {len(manual) + len(downloaded)} clips "
+            f"({len(manual)} manual + {len(downloaded)} downloaded)"
+        )
+
+        # 3. Select clip with anti-repeat and validation
+        chosen, clip_duration = self._select_from_pool(manual, downloaded)
+        if chosen is None:
+            log.error("brain_rot_fetcher.no_valid_clip_found")
             return None
 
-        # 1. Choose category (weighted random)
-        category = self._pick_category()
-        log.info("brain_rot_fetcher.category_selected", query=category["query"])
+        print(f"[BrainRot] Selected: {chosen.name} (duration: {clip_duration:.1f}s) ✓")
 
-        # 2. Try cache first
-        raw_path = self._from_cache(category)
-        if raw_path is None:
-            # 3. Fetch from Pexels
-            raw_path = self._fetch_from_pexels(category)
-            if raw_path is None:
-                return None
-            # 4. Prune cache if over limit
-            self._prune_cache()
-
-        # 5. Process (trim/loop + resize + mute)
-        return self._process_clip(raw_path, duration)
+        # 4. Process (trim/loop + resize + mute)
+        return self._process_clip(chosen, duration)
 
     def _pick_category(self) -> dict:
         """Weighted-random selection from brain_rot_categories."""
@@ -126,53 +156,144 @@ class BrainRotFetcher:
         return random.choices(self._categories, weights=weights, k=1)[0]
 
     # ------------------------------------------------------------------ #
-    #  Cache                                                              #
+    #  Pool scanning                                                      #
     # ------------------------------------------------------------------ #
 
-    def _cache_files_for(self, category: dict) -> list[Path]:
-        """Return cached .mp4 files matching the given category slug."""
-        self._cache_dir.mkdir(parents=True, exist_ok=True)
-        slug = _slug(category["query"])
-        return sorted(
-            self._cache_dir.glob(f"{slug}_*.mp4"),
-            key=lambda p: p.stat().st_mtime,
-        )
+    def _is_auto_downloaded(self, path: Path) -> bool:
+        """True if the filename matches the auto-download pattern <slug>_<timestamp>.mp4."""
+        return bool(_AUTO_PATTERN.match(path.name))
 
-    def _from_cache(self, category: dict) -> Optional[Path]:
+    def _scan_pool(self) -> tuple[list[Path], list[Path]]:
         """
-        Return a random cached clip for the category if ≥ _CACHE_HIT_THRESHOLD
-        exist, otherwise None (triggers API call).
+        Scan self._cache_dir for all .mp4 files.
+        Returns (manual_clips, auto_downloaded_clips).
         """
-        files = self._cache_files_for(category)
-        if len(files) >= _CACHE_HIT_THRESHOLD:
-            chosen = random.choice(files)
-            log.info(
-                "brain_rot_fetcher.cache_hit",
-                file=chosen.name,
-                total=len(files),
+        self._cache_dir.mkdir(parents=True, exist_ok=True)
+        manual: list[Path] = []
+        downloaded: list[Path] = []
+        for p in sorted(self._cache_dir.glob("*.mp4")):
+            if self._is_auto_downloaded(p):
+                downloaded.append(p)
+            else:
+                manual.append(p)
+        return manual, downloaded
+
+    # ------------------------------------------------------------------ #
+    #  Selection                                                          #
+    # ------------------------------------------------------------------ #
+
+    def _select_from_pool(
+        self, manual: list[Path], downloaded: list[Path]
+    ) -> tuple[Optional[Path], float]:
+        """
+        Pick one valid clip, preferring manual over auto-downloaded.
+        Skips recently used clips (anti-repeat window = last 5).
+        Returns (path, duration_seconds) or (None, 0.0) if nothing valid.
+        """
+        recent = self._load_usage_log()
+
+        def try_pool(candidates: list[Path]) -> tuple[Optional[Path], float]:
+            not_recent = [p for p in candidates if p.name not in recent]
+            pool = not_recent if not_recent else list(candidates)
+            random.shuffle(pool)
+            for candidate in pool:
+                dur = self._validate_clip(candidate)
+                if dur is not None:
+                    return candidate, dur
+            return None, 0.0
+
+        path, dur = try_pool(manual)
+        if path is None:
+            path, dur = try_pool(downloaded)
+
+        if path is not None:
+            self._update_usage_log(path.name)
+        return path, dur
+
+    def _validate_clip(self, path: Path) -> Optional[float]:
+        """
+        Return clip duration (seconds) if valid, None otherwise.
+        Deletes the file if it is corrupted. Logs a warning if too short.
+        """
+        try:
+            from moviepy import VideoFileClip
+            clip = VideoFileClip(str(path))
+            dur = clip.duration
+            clip.close()
+        except Exception as exc:
+            log.warning(
+                "brain_rot_fetcher.clip_corrupt",
+                file=path.name,
+                error=str(exc)[:120],
             )
-            return chosen
-        log.info(
-            "brain_rot_fetcher.cache_miss",
-            query=category["query"],
-            cached=len(files),
-        )
-        return None
+            try:
+                path.unlink(missing_ok=True)
+            except Exception:
+                pass
+            return None
+
+        if dur < _MIN_CLIP_DURATION:
+            log.warning(
+                "brain_rot_fetcher.clip_too_short",
+                file=path.name,
+                duration=round(dur, 1),
+                minimum=_MIN_CLIP_DURATION,
+            )
+            return None
+
+        return dur
+
+    # ------------------------------------------------------------------ #
+    #  Usage log (anti-repeat)                                            #
+    # ------------------------------------------------------------------ #
+
+    def _load_usage_log(self) -> set[str]:
+        """Return the set of clip filenames used in the last _ANTI_REPEAT_WINDOW selections."""
+        log_path = self._cache_dir / "usage_log.json"
+        try:
+            data = json.loads(log_path.read_text(encoding="utf-8"))
+            recent = data.get("recent", [])
+            return set(recent[-_ANTI_REPEAT_WINDOW:])
+        except Exception:
+            return set()
+
+    def _update_usage_log(self, filename: str) -> None:
+        """Append filename to usage_log.json, keeping the last 20 entries."""
+        log_path = self._cache_dir / "usage_log.json"
+        try:
+            try:
+                data = json.loads(log_path.read_text(encoding="utf-8"))
+            except Exception:
+                data = {"recent": []}
+            recent: list[str] = data.get("recent", [])
+            recent.append(filename)
+            data["recent"] = recent[-20:]
+            log_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        except Exception as exc:
+            log.warning("brain_rot_fetcher.usage_log_write_failed", error=str(exc))
+
+    # ------------------------------------------------------------------ #
+    #  Cache management                                                   #
+    # ------------------------------------------------------------------ #
 
     def _prune_cache(self) -> None:
-        """Delete oldest clips when total cached files exceed max_cached_clips."""
+        """Delete oldest auto-downloaded clips when over max_cached_clips."""
         self._cache_dir.mkdir(parents=True, exist_ok=True)
-        all_clips = sorted(
-            self._cache_dir.glob("*.mp4"),
+        auto_clips = sorted(
+            [p for p in self._cache_dir.glob("*.mp4") if self._is_auto_downloaded(p)],
             key=lambda p: p.stat().st_mtime,
         )
-        while len(all_clips) > self._max_cached:
-            oldest = all_clips.pop(0)
+        while len(auto_clips) > self._max_cached:
+            oldest = auto_clips.pop(0)
             try:
                 oldest.unlink()
                 log.info("brain_rot_fetcher.cache_pruned", file=oldest.name)
             except Exception as exc:
-                log.warning("brain_rot_fetcher.cache_prune_failed", file=oldest.name, error=str(exc))
+                log.warning(
+                    "brain_rot_fetcher.cache_prune_failed",
+                    file=oldest.name,
+                    error=str(exc),
+                )
 
     # ------------------------------------------------------------------ #
     #  Pexels API                                                         #
@@ -304,11 +425,14 @@ class BrainRotFetcher:
                     for chunk in r.iter_content(chunk_size=1024 * 256):
                         if chunk:
                             f.write(chunk)
-            log.info("brain_rot_fetcher.download_done", file=dest.name, bytes=dest.stat().st_size)
+            log.info(
+                "brain_rot_fetcher.download_done",
+                file=dest.name,
+                bytes=dest.stat().st_size,
+            )
             return dest
         except Exception as exc:
             log.error("brain_rot_fetcher.download_failed", error=str(exc))
-            # Remove partial file if it exists
             try:
                 dest.unlink(missing_ok=True)
             except Exception:

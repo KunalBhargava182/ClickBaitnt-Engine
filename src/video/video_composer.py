@@ -391,9 +391,8 @@ class VideoComposer:
 
     def _concat_with_crossfade(self, clips: list[VideoClip]) -> VideoClip:
         """
-        Concatenate clips. If more than one clip and crossfade is configured,
-        apply crossfadein/crossfadeout with padding overlap.
-        Falls back to simple cut concatenation if the effect API is unavailable.
+        Concatenate clips with crossfade transitions using MoviePy 2.x effect API.
+        Falls back to simple cut concatenation if effects are unavailable.
         """
         if len(clips) == 1:
             return clips[0]
@@ -403,12 +402,13 @@ class VideoComposer:
             return concatenate_videoclips(clips)
 
         try:
+            from moviepy import vfx
             faded: list[VideoClip] = []
             for i, clip in enumerate(clips):
                 if i > 0:
-                    clip = clip.crossfadein(xd)
+                    clip = clip.with_effects([vfx.CrossFadeIn(xd)])
                 if i < len(clips) - 1:
-                    clip = clip.crossfadeout(xd)
+                    clip = clip.with_effects([vfx.CrossFadeOut(xd)])
                 faded.append(clip)
 
             return concatenate_videoclips(faded, padding=-xd, method="compose")

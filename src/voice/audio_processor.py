@@ -51,10 +51,11 @@ class AudioProcessor:
         - Music     : 15% of voice level, auto-faded
     """
 
-    MUSIC_VOLUME = 0.15      # 15% relative to normalised voice
-    TARGET_LUFS  = -14.0
-    TRUE_PEAK    = -1.0      # dBTP ceiling
-    LRA          = 11.0      # Loudness range target
+    MUSIC_VOLUME    = 0.15      # 15% relative to normalised voice
+    TARGET_LUFS     = -14.0
+    TRUE_PEAK       = -1.0      # dBTP ceiling
+    LRA             = 11.0      # Loudness range target
+    MAX_DURATION_S  = 63.0      # Hard ceiling; atempo speeds up audio that exceeds this
 
     def __init__(self):
         if not _ffmpeg_available():
@@ -198,6 +199,34 @@ class AudioProcessor:
         except ValueError:
             return 0.0
 
+    def _fit_to_duration(self, src: Path, dst: Path) -> Path:
+        """
+        Speed up audio with atempo if it exceeds MAX_DURATION_S.
+        Pitch is preserved; tempo is increased proportionally.
+        atempo accepts values in [0.5, 100]; a single filter suffices up to ~2x.
+        """
+        duration = self._get_duration(src)
+        if duration <= self.MAX_DURATION_S:
+            import shutil
+            shutil.copy2(str(src), str(dst))
+            return dst
+
+        rate = duration / self.MAX_DURATION_S
+        log.info(
+            "audio_processor.fit_duration.speeding_up",
+            original_s=round(duration, 2),
+            target_s=self.MAX_DURATION_S,
+            atempo=round(rate, 4),
+        )
+        _ffmpeg(
+            "-i", str(src),
+            "-af", f"atempo={rate:.4f}",
+            str(dst),
+        )
+        fitted = self._get_duration(dst)
+        log.info("audio_processor.fit_duration.done", fitted_s=round(fitted, 2))
+        return dst
+
     def _export_wav(self, src: Path, dst: Path) -> Path:
         """Convert to 44100 Hz stereo 16-bit WAV."""
         _ffmpeg(
@@ -279,8 +308,16 @@ class AudioProcessor:
                 import shutil
                 shutil.copy2(str(normalised), str(mixed))
 
-            # Step 4: Export final WAV
-            self._export_wav(mixed, output_path)
+            # Step 4: Speed-up if audio would exceed Shorts limit
+            fitted = tmp_dir / "04_fitted.wav"
+            try:
+                self._fit_to_duration(mixed, fitted)
+            except Exception as exc:
+                log.warning("audio_processor.fit_duration.failed", error=str(exc))
+                fitted = mixed
+
+            # Step 5: Export final WAV
+            self._export_wav(fitted, output_path)
 
         duration = self._get_duration(output_path)
         size_kb = output_path.stat().st_size / 1024

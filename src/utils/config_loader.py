@@ -20,7 +20,7 @@ def _load_env(env_path: Path | None = None) -> None:
     """Load .env into os.environ. Safe to call multiple times."""
     if env_path is None:
         env_path = PROJECT_ROOT / ".env"
-    load_dotenv(dotenv_path=env_path, override=False)
+    load_dotenv(dotenv_path=env_path, override=True)
 
 
 def _load_yaml(config_path: Path | None = None) -> dict[str, Any]:

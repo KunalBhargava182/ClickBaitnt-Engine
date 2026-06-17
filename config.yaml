@@ -53,7 +53,7 @@ script:
 
 # --- Voice ---
 voice:
-  provider: "elevenlabs"
+  provider: "edge_tts"      # ElevenLabs free tier banned (unusual activity) — switch back to "elevenlabs" when paid plan added
   elevenlabs:
     voice_id: "pNInz6obpgDQGcFmaJgB"
     model_id: "eleven_turbo_v2_5"
@@ -150,3 +150,10 @@ splitscreen:
       weight: 20
   clip_cache_dir: "assets/brain_rot_clips"
   max_cached_clips: 30
+
+# --- Character Video Overlay Settings ---
+# Only used when --suri flag is passed. Does not affect any other mode.
+character_overlay:
+  default_character: "suri"
+  clips_directory: "assets/characters"
+  resize_mode: "crop_center"
