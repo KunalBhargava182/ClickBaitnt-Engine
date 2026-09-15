@@ -23,6 +23,28 @@ Scheduled to run 3 videos/day at set intervals — wake up to a channel that pos
 
 ---
 
+## Architecture
+
+```mermaid
+flowchart TD
+    A[Trend Discovery<br/>Google Trends, NewsAPI, Reddit] --> B[Script Generation<br/>Gemini]
+    B --> C[Script Validation]
+    C --> D[Voice Synthesis<br/>ElevenLabs or Edge-TTS]
+    D --> E[Audio Processing]
+    E --> F[Whisper Alignment<br/>word-level timing]
+    F --> G[Image Generation<br/>Stability AI or Pexels]
+    G --> H[Video Assembly<br/>MoviePy and FFmpeg]
+    H --> I[Video Validation]
+    I --> J[YouTube Upload<br/>Data API v3]
+    J --> K[Excel Tracker]
+    K --> L[Cleanup and Archive]
+```
+
+Each stage writes to disk and the next one picks it up, so a failure part-way through
+can be resumed rather than restarting the whole pipeline.
+
+---
+
 ## Features
 
 - **Trend Discovery** — pulls live trends from Google Trends, NewsAPI, and Reddit; scores and filters by niche
