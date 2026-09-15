@@ -1,7 +1,8 @@
 # ClickBaitnt-Engine
 
 > **The automation engine behind [@ClickBaitn't](https://www.youtube.com/@ClickBaitnt)** — a fully autonomous AI pipeline that discovers trending topics, writes scripts, generates voice, assembles videos, and uploads directly to YouTube. Zero manual work per video.
-
+> 
+> Source published for reference. All rights reserved, not licensed for reuse.
 ---
 
 ## What It Does
