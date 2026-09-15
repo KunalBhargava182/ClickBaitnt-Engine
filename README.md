@@ -41,7 +41,7 @@ Scheduled to run 3 videos/day at set intervals — wake up to a channel that pos
 
 All videos produced by this engine are published to:
 
-**[youtube.com/@ClickBaitnt](https://www.youtube.com/@ClickBaitnt)**
+**[youtube.com/@ClickBaitnt](https://www.youtube.com/@ClickBaitnt)** · **[instagram.com/clickbaitnt](https://www.instagram.com/clickbaitnt/)**
 
 ---
 
